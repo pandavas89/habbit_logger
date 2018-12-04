@@ -79,8 +79,8 @@ class DietSettings(QTabWidget):
         label = self.setLabel('잘한일')
         self.deed = QLineEdit()
         self.deed.setText(self.settings.value('deed'))
-        self.addWidget(label, 6)
-        self.addWidget(self.deed, next=True)
+        self.addWidget(label, 3)
+        self.addWidget(self.deed, 4, next=True)
 
         save_button = QPushButton('저장')
         save_button.clicked.connect(self.saveSettings)

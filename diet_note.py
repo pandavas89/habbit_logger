@@ -115,7 +115,7 @@ class DietNote(QMainWindow):
             self.d_meal = QLabel()
             self.d_meal.setAlignment(Qt.AlignCenter)
             self.addWidget(self.c_meal)
-            self.addWidget(self.g_meal)
+            self.addWidget(self.g_meal, 2)
             self.addWidget(self.d_meal, next=True)
 
         #식단 항목
@@ -171,6 +171,10 @@ class DietNote(QMainWindow):
             no_file.setWindowTitle('환영합니다')
             no_file.setText('식단일기를 새롭게 시작합니다')
             no_file.exec_()
+
+    def mealUpdate(self):
+        '''칼로리 변화를 추적한다'''
+        self.d_meal.setText('%0.f'%(self.c_meal.value() - self.g_meal.value()))
 
     def addAction(self):
         '''활동 추가'''
@@ -250,7 +254,7 @@ class DietNote(QMainWindow):
             idx = self.a_text.index(action)
             self.dLog.action.append([action.text(), self.a_count[idx].value()])
         if self.settings.value('calory'):
-            self.dLog.c_goal = self.c_goal.value()
+            self.dLog.c_goal = self.g_meal.value()
         self.dLog.m_list = []
         for meal in self.m_list:
             self.dLog.m_list.append(meal.text())
