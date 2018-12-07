@@ -8,6 +8,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 import habbit_settings
+import INote_gdapi
 
 class HabbitNote(QMainWindow):
     '''개선일지 위젯'''
@@ -15,7 +16,7 @@ class HabbitNote(QMainWindow):
         '''기초적인 내용을 설정한다'''
         super(HabbitNote, self).__init__(parent)
         self.db_name = db_name
-        self.version = 2
+        self.version = 3
         self.d_version = 2
 
         self.settings = QSettings('pandavas', 'HabbitNote')
@@ -26,6 +27,7 @@ class HabbitNote(QMainWindow):
             self.settings.setValue('note', '개선일지')
             self.settings.setValue('linebreak', 1)
             self.settings.setValue('weekday', 1)
+            self.settings.setValue('autoVerify', 0)
 
         self.hLog = HabbitLog()
 
@@ -135,9 +137,10 @@ class HabbitNote(QMainWindow):
         '''출력한다'''
         date = self.c_date.date().toString('yyMMdd')
         out_str = self.settings.value('header')
-        out_str += '%s, %s '%(self.d_day.text(), date)
+        d_day = self.b_date.date().daysTo(self.c_date.date()) + 1
+        out_str += '%s, %s '%(d_day, date)
+        wdays = '월화수목금토일'
         if self.settings.value('weekday'):
-            wdays = '월화수목금토일'
             out_str += wdays[self.c_date.date().toPyDate().weekday()] + '\n'
         else:
             out_str += '\n'
@@ -230,7 +233,7 @@ class HabbitNote(QMainWindow):
             self.h_count[idx].setValue(self.h_log.habbit[idx][2] + self.h_check[idx].value())
         #디지털 카운터일 때
         else:
-            self.h_count[idx].setValue(self.h_count[idx].value() + (-1)^self.h_check[idx].isChecked())
+            self.h_count[idx].setValue(self.h_count[idx].value() - (-1)**(self.h_check[idx].isChecked()))
 
     def lUpdate(self):
         '''개선일지 변화를 반영한다'''
@@ -278,6 +281,28 @@ class HabbitNote(QMainWindow):
         with shelve.open(self.db_name) as data:
             data['h_log'] = self.hLog
 
+        if self.settings.value('autoVerify'):
+            wdays='월화수목금토일'
+            input_date = self.c_date.date().toString('M/d ') + wdays[self.c_date.date().toPyDate().weekday()]
+            input_name = self.settings.value('nickname')
+            try:
+                gapi = INote_gdapi.gAPI(self.settings.value('sheetID'))
+                name_row = gapi.findName(input_name)
+                date_column = gapi.findDate(input_date)
+                gapi.updateVerification(name_row, date_column)
+                data = gapi.getVerificationInfo(name_row)
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 완료!')
+                update_msg = '자동인증이 완료되었습니다. \n 이번달에 총 %d회, 누적 총 %d회 인증하셨습니다.'%(data[0], sum(data))
+                msg.setText(update_msg)
+                msg.exec_()
+            except:
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 실패!')
+                error_msg = '자동인증이 실패했습니다. ID와 닉네임을 확인해주세요. \n 최초 기동이신 경우, 재시도해주세요.'
+                msg.setText(error_msg)
+                msg.exec_()
+
     def load(self):
         '''self.hLog에 저장된 데이터를 불러온다'''
         #데이터 파일 존재를 확인
@@ -307,6 +332,12 @@ class HabbitNote(QMainWindow):
     def mount(self):
         '''self.hLog의 데이터를 어플리케이션에 표시한다'''
         self.b_date.setDate(self.hLog.date)
+        #저녁 6시 전에 작성하는 경우 :
+        if datetime.datetime.now().hour < 18:
+            date = datetime.datetime.today() - datetime.timedelta(days=1)
+            self.c_date.setDate(date)
+        else:
+            self.c_date.setDate(datetime.date.today())
         for habbit in self.hLog.habbit:
             idx = self.hLog.habbit.index(habbit)
             self.h_order[idx] = habbit[0]

@@ -8,6 +8,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 import diet_settings
+import INote_gdapi
 
 class DietNote(QMainWindow):
     '''식단일기 위젯'''
@@ -15,7 +16,7 @@ class DietNote(QMainWindow):
         '''기초적인 내용을 설정한다'''
         super(DietNote, self).__init__(parent)
         self.db_name = db_name
-        self.version = 2
+        self.version = 3
         self.d_version = 2
 
         self.settings = QSettings('pandavas', 'DietNote')
@@ -29,6 +30,7 @@ class DietNote(QMainWindow):
             self.settings.setValue('deed', '4. 잘한일')
             self.settings.setValue('weekday', 1)
             self.settings.setValue('linebreak', 1)
+            self.settings.setValue('autoVerify', 0)
 
         self.dLog = DietLog()
 
@@ -89,6 +91,7 @@ class DietNote(QMainWindow):
             for action in self.dLog.action:
                 self.a_text.append(QLineEdit())
                 self.a_check.append(QCheckBox())
+                self.a_check[-1].stateChanged.connect(self.aUpdate)
                 self.a_count.append(QSpinBox())
                 self.a_count[-1].setMaximum(999999)
                 self.addWidget(self.a_text[-1], 2)
@@ -175,6 +178,11 @@ class DietNote(QMainWindow):
     def mealUpdate(self):
         '''칼로리 변화를 추적한다'''
         self.d_meal.setText('%0.f'%(self.c_meal.value() - self.g_meal.value()))
+
+    def aUpdate(self):
+        '''활동의 수치 변화를 추적한다'''
+        idx = self.a_check.index(self.sender())
+        self.a_count[idx].setValue(self.a_count[idx].value() - (-1)**(self.a_check[idx].isChecked()))
 
     def addAction(self):
         '''활동 추가'''
@@ -265,13 +273,21 @@ class DietNote(QMainWindow):
 
     def mount(self):
         '''데이터를 어플리케이션에 반영한다'''
+        #저녁 6시 이전에 작성할 경우
         self.b_date.setDate(self.dLog.date)
+        if datetime.datetime.now().hour < 18:
+            date = datetime.datetime.today() - datetime.timedelta(days=1)
+            self.c_date.setDate(date)
+        else:
+            self.c_date.setDate(datetime.date.today())
         self.g_text.setText(self.dLog.goal)
         for action in self.dLog.action:
             idx = self.dLog.action.index(action)
             self.a_text[idx].setText(action[0])
             self.a_count[idx].setValue(action[1])
         self.v_list[0].setValue(self.dLog.v_count)
+        if self.settings.value('calory'):
+            self.g_meal.setValue(self.dLog.c_goal)
 
     def loadMount(self):
         self.load()
@@ -281,7 +297,8 @@ class DietNote(QMainWindow):
         '''출력한다'''
         date = self.c_date.date().toString('yyMMdd')
         out_str = self.settings.value('header')
-        out_str += '%s %s' %(self.d_day.text(), date)
+        d_day = self.b_date.date().daysTo(self.c_date.date()) + 1
+        out_str += '%s %s' %(d_day, date)
         if self.settings.value('weekday'):
             wdays = '월화수목금토일'
             out_str += wdays[self.c_date.date().toPyDate().weekday()]
@@ -332,7 +349,7 @@ class DietNote(QMainWindow):
             idx = self.a_text.index(action)
             self.dLog.action.append([action.text(), self.a_count[idx].value()])
         if self.settings.value('calory'):
-            self.dLog.c_goal = self.c_goal.value()
+            self.dLog.c_goal = self.g_meal.value()
         self.dLog.m_list = []
         for meal in self.m_list:
             self.dLog.m_list.append(meal.text())
@@ -340,6 +357,28 @@ class DietNote(QMainWindow):
 
         with shelve.open(self.db_name) as data:
             data['d_log'] = self.dLog
+
+        if self.settings.value('autoVerify'):
+            wdays='월화수목금토일'
+            input_date = self.c_date.date().toString('M/d ') + wdays[self.c_date.date().toPyDate().weekday()]
+            input_name = self.settings.value('nickname')
+            try:
+                gapi = INote_gdapi.gAPI(self.settings.value('sheetID'))
+                name_row = gapi.findName(input_name)
+                date_column = gapi.findDate(input_date)
+                gapi.updateVerification(name_row, date_column)
+                data = gapi.getVerificationInfo(name_row)
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 완료!')
+                update_msg = '자동인증이 완료되었습니다. \n 이번달에 총 %d회, 누적 총 %d회 인증하셨습니다.'%(data[0], sum(data))
+                msg.setText(update_msg)
+                msg.exec_()
+            except:
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 실패!')
+                error_msg = '자동인증이 실패했습니다. ID와 닉네임을 확인해주세요.\n 최초 기동이신 경우, 재시도해주세요.'
+                msg.setText(error_msg)
+                msg.exec_()
 
 class DietLog():
     '''식단일기 데이터 구조체'''

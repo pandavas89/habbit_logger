@@ -8,13 +8,14 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 import read_settings
+import INote_gdapi
 
 class ReadNote(QMainWindow):
     '''독서일기 위젯'''
     def __init__(self, db_name, parent=None):
         super(ReadNote, self).__init__(parent)
         self.db_name = db_name
-        self.version = 2
+        self.version = 3
         self.d_version = 2
 
         self.settings = QSettings('pandavas', 'ReadNote')
@@ -24,6 +25,7 @@ class ReadNote(QMainWindow):
             self.settings.setValue('comment', '오늘의 감상 : ')
             self.settings.setValue('linebreak', 1)
             self.settings.setValue('weekday', 1)
+            self.settings.setValue('autoVerify', 0)
 
         self.rLog = ReadLog()
 
@@ -132,6 +134,12 @@ class ReadNote(QMainWindow):
     def mount(self):
         '''self.rLog의 데이터를 어플리케이션에 표시한다'''
         self.b_date.setDate(self.rLog.date)
+        #저녁 6시 전에 작성하는 경우
+        if datetime.datetime.now().hour < 18:
+            date = datetime.datetime.today() - datetime.timedelta(days=1)
+            self.c_date.setDate(date)
+        else:
+            self.c_date.setDate(datetime.date.today())
         self.c_book.setText(self.rLog.c_book)
         self.b_page.setValue(self.rLog.c_page)
         self.e_page.setValue(self.rLog.c_page)
@@ -242,12 +250,36 @@ class ReadNote(QMainWindow):
         msg = QMessageBox()
         msg.setWindowTitle('오늘의 개선일지')
         msg.setText(out_str)
-        msg.buttonClicked.connect(self.save)
+        msg.buttonClicked.connect(self.expSave)
         msg.exec_()
 
     def showSettings(self):
         self.setting_widget = read_settings.ReadSettings(self.settings)
         self.setting_widget.show()
+
+    def expSave(self):
+        self.save()
+        if self.settings.value('autoVerify'):
+            wdays='월화수목금토일'
+            input_date = self.c_date.date().toString('M/d ') + wdays[self.c_date.date().toPyDate().weekday()]
+            input_name = self.settings.value('nickname')
+            try:
+                gapi = INote_gdapi.gAPI(self.settings.value('sheetID'))
+                name_row = gapi.findName(input_name)
+                date_column = gapi.findDate(input_date)
+                gapi.updateVerification(name_row, date_column)
+                data = gapi.getVerificationInfo(name_row)
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 완료!')
+                update_msg = '자동인증이 완료되었습니다. \n 이번달에 총 %d회, 누적 총 %d회 인증하셨습니다.'%(data[0], sum(data))
+                msg.setText(update_msg)
+                msg.exec_()
+            except:
+                msg = QMessageBox()
+                msg.setWindowTitle('자동인증 실패!')
+                error_msg = '자동인증이 실패했습니다. ID와 닉네임을 확인해주세요.\n 최초 기동이신 경우, 재시도해주세요.'
+                msg.setText(error_msg)
+                msg.exec_()
 
 class ReadLog():
     '''독서일기 데이터 구조체'''
