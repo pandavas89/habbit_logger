@@ -7,17 +7,26 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-import read_settings
-import INote_gdapi
+from common_note import CommonNote
+from read_data import ReadLog
+from read_settings import ReadSettings
 
-class ReadNote(QMainWindow):
-    '''독서일기 위젯'''
-    def __init__(self, db_name, parent=None):
+class ReadNote(CommonNote):
+    '''독서일기 프로그램'''
+    def __init__(self, parent=None):
         super(ReadNote, self).__init__(parent)
-        self.db_name = db_name
-        self.version = 3
-        self.d_version = 2
+        self.log = ReadLog()
+        self.version = 40
+        self.log_name = 'r_log'
 
+        #테스트용
+        '''
+        self.log.date = datetime.date(year=2018, month=12, day=1)
+        self.log.c_book = [['체 게바라 평전', 100, 892],['나를 운디드니에 묻어주오', 227, 680]]
+        self.log.record = [['누적 읽은 페이지수', 1200], ['소설 읽기', 500]]
+        '''
+
+        #설정을 적용한다.
         self.settings = QSettings('pandavas', 'ReadNote')
         if not(self.settings.value('init')):
             self.settings.setValue('init', 1)
@@ -27,14 +36,7 @@ class ReadNote(QMainWindow):
             self.settings.setValue('weekday', 1)
             self.settings.setValue('autoVerify', 0)
 
-        self.rLog = ReadLog()
-
-        self.setWindowTitle('[한쪽만] v_%0.1f' %(self.version/10))
-
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        self.grid = QGridLayout()
-        main_widget.setLayout(self.grid)
+        self.setWindowTitle('[한쪽만] v_%0.2f' %(self.version/100))
 
         self.load()
         self.setUI()
@@ -42,188 +44,115 @@ class ReadNote(QMainWindow):
 
     def setUI(self):
         '''UI를 설정한다'''
-        self.row_count = 0
-        self.col_count = 0
+        #d-day
+        self.addDdayCounter()
 
-        #시작일자, 현재일자 및 D+ 카운터
-        self.b_date = QDateEdit()
-        self.b_date.dateChanged.connect(self.d_day_update)
-        self.c_date = QDateEdit()
-        self.c_date.dateChanged.connect(self.d_day_update)
-        self.d_day = QLabel('')
-        self.d_day.setAlignment(Qt.AlignCenter)
-        self.c_date.setDate(datetime.date.today())
-        setting_button = QPushButton('설정')
-        setting_button.clicked.connect(self.showSettings)
-        self.addWidget(self.b_date)
-        self.addWidget(self.c_date)
-        self.addWidget(self.d_day, 2)
-        self.addWidget(setting_button, next=True)
-
-        #현재 도서 헤더
-        label = self.setLabel('현재 도서')
-        r_add_button = QPushButton('기록 추가')
-        r_add_button.clicked.connect(self.addRecord)
-        r_del_button = QPushButton('기록 삭제')
-        r_del_button.clicked.connect(self.delRecord)
-        self.addWidget(label, 3)
-        self.addWidget(r_add_button)
-        self.addWidget(r_del_button, next=True)
-
-        #현재 도서
-        self.c_book = QLineEdit()
-        self.b_page = QSpinBox()
-        self.b_page.setMaximum(9999)
-        label = QLabel('~')
-        label.setAlignment(Qt.AlignCenter)
-        self.e_page = QSpinBox()
-        self.e_page.setMaximum(9999)
-        self.addWidget(self.c_book, 2)
-        self.addWidget(self.b_page)
-        self.addWidget(label)
-        self.addWidget(self.e_page, next=True)
+        #현재도서
+        self.addCategory('현재 도서')
+        b_add_button = QPushButton('추가')
+        b_add_button.clicked.connect(self.addBook)
+        b_del_button = QPushButton('삭제')
+        b_del_button.clicked.connect(self.delBook)
+        self.addWidget(b_add_button)
+        self.addWidget(b_del_button, next=True)
+        if len(self.log.c_book) > 0:
+            for book in self.log.c_book:
+                self.addPageCounter(book[0])
+                self.c_value.append(book[1])
 
         #기록
-        self.r_name = []
-        self.r_check = []
-        self.r_count = []
-        if len(self.rLog.record) > 0:
-            for record in self.rLog.record:
-                self.r_name.append(QLineEdit())
-                self.r_check.append(QSpinBox())
-                self.r_check[-1].setMaximum(9999)
-                self.r_count.append(QSpinBox())
-                self.r_count[-1].setMaximum(999999)
-                self.addWidget(self.r_name[-1], 3)
-                self.addWidget(self.r_check[-1])
-                self.addWidget(self.r_count[-1], next=True)
+        self.addCategory('기록')
+        r_add_button = QPushButton('추가')
+        r_add_button.clicked.connect(self.addRecord)
+        r_del_button = QPushButton('삭제')
+        r_del_button.clicked.connect(self.delRecord)
 
-        #감상 헤더
-        label = self.setLabel('감상')
-        self.addWidget(label, 5, next=True)
+        self.addWidget(r_add_button)
+        self.addWidget(r_del_button, next=True)
+        if len(self.log.record) > 0:
+            for record in self.log.record:
+                self.addAnalogCounter(record[0], point=False)
 
         #감상
+        self.addCategory('감상')
         self.comment = QTextEdit()
-        self.addWidget(self.comment, 5, next=True)
+        self.addWidget(self.comment, next=True)
 
-        #저장, 불러오기, 출력 버튼
-        save_button = QPushButton('저장')
-        save_button.clicked.connect(self.save)
-        load_button = QPushButton('불러오기')
-        load_button.clicked.connect(self.loadMount)
-        export_button = QPushButton('출력')
-        export_button.clicked.connect(self.export)
-        self.addWidget(save_button, 2)
-        self.addWidget(load_button)
-        self.addWidget(export_button, 2, next=True)
+    def addBook(self):
+        '''도서를 추가한다'''
+        self.log.c_book.append(['', 0, 0])
+        self.clear()
+        self.setUI()
+        self.mount()
 
-    def save(self):
-        '''self.rLog의 데이터를 저장한다'''
-        self.rLog.date = self.b_date.date()
-        self.rLog.c_book = self.c_book.text()
-        self.rLog.c_page = self.e_page.value()
-        self.rLog.record = []
-        for record in self.r_name:
-            idx = self.r_name.index(record)
-            self.rLog.record.append([self.r_name[idx].text(), self.r_count[idx].value()])
-
-        with shelve.open(self.db_name) as data:
-            data['r_log'] = self.rLog
-
-
-    def mount(self):
-        '''self.rLog의 데이터를 어플리케이션에 표시한다'''
-        self.b_date.setDate(self.rLog.date)
-        #저녁 6시 전에 작성하는 경우
-        if datetime.datetime.now().hour < 18:
-            date = datetime.datetime.today() - datetime.timedelta(days=1)
-            self.c_date.setDate(date)
-        else:
-            self.c_date.setDate(datetime.date.today())
-        self.c_book.setText(self.rLog.c_book)
-        self.b_page.setValue(self.rLog.c_page)
-        self.e_page.setValue(self.rLog.c_page)
-        for record in self.rLog.record:
-            idx = self.rLog.record.index(record)
-            self.r_name[idx].setText(record[0])
-            self.r_count[idx].setValue(record[1])
+    def delBook(self):
+        '''도서를 삭제한다'''
+        if len(self.log.c_book) > 0:
+            self.log.c_book.pop()
+            self.clear()
+            self.setUI()
+            self.mount()
 
     def addRecord(self):
         '''기록을 추가한다'''
-        self.rLog.record.append(['', 0])
+        self.log.record.append(['', 0])
         self.clear()
         self.setUI()
         self.mount()
 
     def delRecord(self):
-        '''기록을 제거한다'''
-        if len(self.rLog.record) > 0:
-            self.rLog.record.pop()
-            self.clear()
-            self.setUI()
-            self.mount()
+        '''기록을 삭제한다'''
+        if len(self.log.record) > 0:
+            message = QMessageBox()
+            message.setWindowTitle('습관 제거')
+            message.setText('습관 : %s 제거됩니다.' %self.name[-1].text())
+            message.addButton(QPushButton('예'), QMessageBox.YesRole)
+            message.addButton(QPushButton('아니오'), QMessageBox.NoRole)
+            ok = message.exec_()
+            if ok < 1:
+                self.log.record.pop()
+                self.clear()
+                self.setUI()
+                self.mount()
 
-    def addWidget(self, t_widget, width=1, next=False):
-        '''위젯을 추가한다'''
-        self.grid.addWidget(t_widget, self.row_count, self.col_count, 1, width)
-        if next:
-            self.row_count += 1
-            self.col_count = 0
-        else:
-            self.col_count += width
+    def save(self, export=False):
+        '''self.log의 정보를 저장한다'''
+        self.log.date = self.b_date.date()
 
-    def clear(self):
-        '''어플리케이션 상의 위젯들을 제거한다'''
-        for row in range(0, self.grid.rowCount()):
-            for column in range(0, self.grid.columnCount()):
-                item = self.grid.itemAtPosition(row, column)
-                if item != None:
-                    widget = item.widget()
-                    if widget != None:
-                        self.grid.removeWidget(widget)
-                        widget.deleteLater()
+        book_list = []
+        if len(self.b_name) > 0:
+            for book in self.b_name:
+                idx = self.b_name.index(book)
+                book_list.append([book.text(), self.b_end[idx].value(), self.b_total[idx].value()])
+        self.log.c_book = book_list
 
-    def loadMount(self):
-        self.load()
-        self.mount()
+        record_list = []
+        if len(self.name) > 0:
+            for record in self.name:
+                idx = self.name.index(record)
+                record_list.append([record.text(), self.counter[idx].value()])
+        self.log.record = record_list
 
-    def load(self):
-        '''self.rLog에 저장된 데이터를 불러온다'''
-        #데이터 파일 존재를 확인
-        if os.path.isfile(self.db_name+'.dat'):
-            with shelve.open(self.db_name) as data:
-                #데이터 내 세이브의 존재를 확인
-                if 'r_log' in data:
-                    self.rLog = data['r_log']
-                #데이터 내 세이브 없을 때
-                else:
-                    no_db = QMessageBox()
-                    no_db.setWindowTitle('환영합니다')
-                    no_db.setText('독서일기를 새롭게 시작합니다')
-                    no_db.exec_()
-        #파일 자체가 없을 때
-        else:
-            no_file = QMessageBox()
-            no_file.setWindowTitle('환영합니다')
-            no_file.setText('독서일기를 새롭게 시작합니다')
-            no_file.exec_()
+        super(ReadNote, self).save()
 
-    def d_day_update(self):
-        '''날짜 조작에 따라 D-day 카운터를 갱신한다'''
-        d_day = self.b_date.date().daysTo(self.c_date.date()) + 1
-        self.d_day.setText('D+%d' %d_day)
+    def mount(self):
+        '''self.log의 데이터를 어플리케이션에 반영한다'''
+        self.b_date.setDate(self.log.date)
 
-    def setLabel(self, label_name, c_align=True, frame=True):
-        '''정해진 스타일의 레이블을 리턴한다'''
-        label = QLabel(label_name)
-        if c_align:
-            label.setAlignment(Qt.AlignCenter)
-        if frame:
-            label.setFrameShape(QFrame.Panel)
-        return label
+        for book in self.log.c_book:
+            idx = self.log.c_book.index(book)
+            self.b_name[idx].setText(book[0])
+            self.b_start[idx].setValue(book[1])
+            self.b_total[idx].setValue(book[2])
+            self.b_end[idx].setValue(book[1])
+
+        for record in self.log.record:
+            idx = self.log.record.index(record)
+            self.name[idx].setText(record[0])
+            self.counter[idx].setValue(record[1])
 
     def export(self):
-        '''출력한다'''
+        '''기록을 출력한다'''
         date = self.c_date.date().toString('yyMMdd')
         out_str = self.settings.value('header')
         out_str += '%s %s' %(self.d_day.text(), date)
@@ -234,65 +163,25 @@ class ReadNote(QMainWindow):
             out_str += '\n'
         if self.settings.value('linebreak'):
             out_str += '\n'
-        out_str += '%s %d~%d\n' %(self.c_book.text(), self.b_page.value(), self.e_page.value())
+        out_str += '%s %d~%d\n' %(self.b_name.text(), self.b_start.value(), self.b_total.value())
         if self.settings.value('linebreak'):
             out_str += '\n'
-        if len(self.rLog.record) > 0:
-            for record in self.r_name:
-                idx = self.r_name.index(record)
-                out_str += '%s : %d / %d\n' %(record.text(), self.r_check[idx].value(), self.r_count[idx].value())
+        if len(self.log.record) > 0:
+            for record in self.name:
+                idx = self.name.index(record)
+                out_str += '%s : %d / %d\n' %(record.text(), self.checker[idx].value(), self.counter[idx].value())
         out_str += self.settings.value('comment')
         out_str += self.comment.toPlainText()
 
-        cb = QApplication.clipboard()
-        cb.clear(mode=cb.Clipboard)
-        cb.setText(out_str, mode=cb.Clipboard)
-        msg = QMessageBox()
-        msg.setWindowTitle('오늘의 개선일지')
-        msg.setText(out_str)
-        msg.buttonClicked.connect(self.expSave)
-        msg.exec_()
+        self.exportMessage(out_str, '오늘의 독서일기')
 
     def showSettings(self):
-        self.setting_widget = read_settings.ReadSettings(self.settings)
+        self.setting_widget = ReadSettings(self)
         self.setting_widget.show()
 
-    def expSave(self):
-        self.save()
-        if self.settings.value('autoVerify'):
-            wdays='월화수목금토일'
-            input_date = self.c_date.date().toString('M/d ') + wdays[self.c_date.date().toPyDate().weekday()]
-            input_name = self.settings.value('nickname')
-            try:
-                gapi = INote_gdapi.gAPI(self.settings.value('sheetID'))
-                name_row = gapi.findName(input_name)
-                date_column = gapi.findDate(input_date)
-                gapi.updateVerification(name_row, date_column)
-                data = gapi.getVerificationInfo(name_row)
-                msg = QMessageBox()
-                msg.setWindowTitle('자동인증 완료!')
-                update_msg = '자동인증이 완료되었습니다. \n 이번달에 총 %d회, 누적 총 %d회 인증하셨습니다.'%(data[0], sum(data))
-                msg.setText(update_msg)
-                msg.exec_()
-            except:
-                msg = QMessageBox()
-                msg.setWindowTitle('자동인증 실패!')
-                error_msg = '자동인증이 실패했습니다. ID와 닉네임을 확인해주세요.\n 최초 기동이신 경우, 재시도해주세요.'
-                msg.setText(error_msg)
-                msg.exec_()
 
-class ReadLog():
-    '''독서일기 데이터 구조체'''
-    def __init__(self):
-        #데이터 구조체 버전
-        self.version = 2
-
-        #시작 일자
-        self.date= datetime.date.today()
-
-        #현재 도서
-        self.c_book = ''
-        self.c_page = 0
-
-        #기록
-        self.record = []
+if __name__ == '__main__':
+    application = QApplication(sys.argv)
+    main_widget = ReadNote()
+    main_widget.show()
+    sys.exit(application.exec_())

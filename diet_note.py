@@ -7,23 +7,34 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-import diet_settings
-import INote_gdapi
+from common_note import CommonNote
+from diet_data import DietLog
+from diet_settings import DietSettings
 
-class DietNote(QMainWindow):
-    '''식단일기 위젯'''
-    def __init__(self, db_name, parent=None):
+class DietNote(CommonNote):
+    '''식단일기 프로그램'''
+    def __init__(self, parent=None):
         '''기초적인 내용을 설정한다'''
         super(DietNote, self).__init__(parent)
-        self.db_name = db_name
-        self.version = 3
-        self.d_version = 2
+        self.log = DietLog()
+        self.version = 40
+        self.log_name = 'd_log'
 
+        #테스트용
+        '''
+        self.log.date = datetime.date(year=2018, month=12, day=1)
+        self.log.goal = '다이어트!!!'
+        self.log.action = [['공복운동', 10],['간헐적 단식', 2]]
+        self.log.m_list = ['아침', '점심', '저녁', '간식']
+        self.log.counter = 34
+        '''
+
+        #설정을 적용한다.
         self.settings = QSettings('pandavas', 'DietNote')
         if not(self.settings.value('init')):
             self.settings.setValue('init', 1)
             self.settings.setValue('header', '[먹은거]#DAY_')
-            self.settings.setValue('goal', '1. 목표')
+            self.settings.setValue('goal', '1. 목표 : ')
             self.settings.setValue('action', '2. 활동')
             self.settings.setValue('meal', '3. 식단')
             self.settings.setValue('calory', 0)
@@ -32,16 +43,9 @@ class DietNote(QMainWindow):
             self.settings.setValue('linebreak', 1)
             self.settings.setValue('autoVerify', 0)
 
-        self.dLog = DietLog()
+        self.num_log = 1
 
-        self.setWindowTitle('[먹은거] v_%0.1f' %(self.version/10))
-
-        self.num_virtue = 1
-
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        self.grid = QGridLayout()
-        main_widget.setLayout(self.grid)
+        self.setWindowTitle('[먹은거] v%0.2f' %(self.version/100))
 
         self.load()
         self.setUI()
@@ -49,252 +53,152 @@ class DietNote(QMainWindow):
 
     def setUI(self):
         '''UI를 설정한다'''
-        self.row_count = 0
-        self.col_count = 0
-
-        #시작일자, 현재일자 및 D+ 카운터
-        self.b_date = QDateEdit()
-        self.b_date.dateChanged.connect(self.d_day_update)
-        self.c_date = QDateEdit()
-        self.c_date.dateChanged.connect(self.d_day_update)
-        self.d_day = QLabel('')
-        self.d_day.setAlignment(Qt.AlignCenter)
-        self.c_date.setDate(datetime.date.today())
-        setting_button = QPushButton('설정')
-        setting_button.clicked.connect(self.showSettings)
-        self.addWidget(self.b_date)
-        self.addWidget(self.c_date)
-        self.addWidget(self.d_day)
-        self.addWidget(setting_button, next=True)
+        #d-day
+        self.addDdayCounter()
 
         #목표
-        label = self.setLabel('목표')
-        self.g_text = QLineEdit()
-        self.addWidget(label)
-        self.addWidget(self.g_text, 3, next=True)
+        self.addCategory('목표')
+        self.goal = QLineEdit()
+        self.addWidget(self.goal, next=True)
 
         #활동
-        label = self.setLabel('활동')
+        self.addCategory('활동')
         add_action_button = QPushButton('추가')
         add_action_button.clicked.connect(self.addAction)
-        del_action_button = QPushButton('삭제')
+        del_action_button = QPushButton('제거')
         del_action_button.clicked.connect(self.delAction)
-        self.addWidget(label, 2)
         self.addWidget(add_action_button)
         self.addWidget(del_action_button, next=True)
-
-        #활동 항목
-        self.a_text = []
-        self.a_check = []
-        self.a_count = []
-        if len(self.dLog.action) > 0:
-            for action in self.dLog.action:
-                self.a_text.append(QLineEdit())
-                self.a_check.append(QCheckBox())
-                self.a_check[-1].stateChanged.connect(self.aUpdate)
-                self.a_count.append(QSpinBox())
-                self.a_count[-1].setMaximum(999999)
-                self.addWidget(self.a_text[-1], 2)
-                self.addWidget(self.a_check[-1])
-                self.addWidget(self.a_count[-1], next=True)
+        self.addCaloryCounter()
+        for action in self.log.action:
+            self.addDigitalCounter(action[0])
 
         #식단
-        label = self.setLabel('식단')
-        add_meal_button = QPushButton('추가')
-        add_meal_button.clicked.connect(self.addMeal)
-        del_meal_button = QPushButton('삭제')
-        self.addWidget(label, 2)
-        self.addWidget(add_meal_button)
-        self.addWidget(del_meal_button, next=True)
+        self.addCategory('식단')
+        self.meal_name = []
+        self.meal_text = []
+        self.addMeal(self.log.m_list)
 
-        #칼로리 옵션
+        #잘한거
+        self.addCategory('잘한일')
+        add_log_button = QPushButton('추가')
+        add_log_button.clicked.connect(self.addlogBtn)
+        del_log_button = QPushButton('제거')
+        del_log_button.clicked.connect(self.delLogBtn)
+        self.addWidget(add_log_button)
+        self.addWidget(del_log_button, next=True)
+        for i in range(self.num_log):
+            self.addLog()
+
+    def mount(self):
+        '''self.log의 데이터를 어플리케이션에 반영한다'''
+        self.b_date.setDate(self.log.date)
+        self.goal.setText(self.log.goal)
         if self.settings.value('calory'):
-            self.c_meal = QSpinBox()
-            self.c_meal.setMaximum(9999)
-            self.c_meal.valueChanged.connect(self.mealUpdate)
-            self.g_meal = QSpinBox()
-            self.g_meal.setMaximum(9999)
-            self.g_meal.valueChanged.connect(self.mealUpdate)
-            self.d_meal = QLabel()
-            self.d_meal.setAlignment(Qt.AlignCenter)
-            self.addWidget(self.c_meal)
-            self.addWidget(self.g_meal, 2)
-            self.addWidget(self.d_meal, next=True)
+            self.g_calory.setValue(self.log.c_goal)
+        for action in self.log.action:
+            idx = self.log.action.index(action)
+            self.name[idx].setText(action[0])
+            self.counter[idx].setValue(action[1])
+        self.log_counter[0].setValue(self.log.counter)
 
-        #식단 항목
-        self.m_list = []
-        self.m_text = []
-        if len(self.dLog.m_list) < 1:
-            self.autoAddMeal(['아침', '점심', '저녁', '간식'])
-        else:
-            self.autoAddMeal(self.dLog.m_list)
+    def addCaloryCounter(self):
+        '''칼로리 카운터를 추가한다'''
+        if self.settings.value('calory'):
+            self.c_calory = QSpinBox()
+            self.c_calory.setMaximum(9999)
+            self.c_calory.valueChanged.connect(self.caloryUpdate)
+            self.g_calory = QSpinBox()
+            self.g_calory.setMaximum(9999)
+            self.g_calory.valueChanged.connect(self.caloryUpdate)
+            self.d_calory = QLabel()
+            self.d_calory.setAlignment(Qt.AlignCenter)
+            self.addWidget(self.c_calory)
+            self.addWidget(self.g_calory)
+            self.addWidget(self.d_calory, next=True)
 
-        #잘한것 헤더
-        label = self.setLabel('잘한것')
-        self.addWidget(label, 4, next=True)
-
-        #잘한것 항목
-        self.v_list = []
-        self.v_text = []
-        for i in range(self.num_virtue):
-            self.v_list.append(QSpinBox())
-            self.v_text.append(QLineEdit())
-            self.addWidget(self.v_list[-1])
-            self.addWidget(self.v_text[-1], 3, next=True)
-
-        #저장, 불러오기, 출력 버튼
-        save_button = QPushButton('저장')
-        save_button.clicked.connect(self.save)
-        load_button = QPushButton('불러오기')
-        load_button.clicked.connect(self.loadMount)
-        export_button = QPushButton('출력')
-        export_button.clicked.connect(self.export)
-        self.addWidget(save_button)
-        self.addWidget(load_button)
-        self.addWidget(export_button, 2, next=True)
-
-
-    def load(self):
-        '''self.dLog에 저장된 데이터를 불러온다'''
-        #데이터 파일 존재를 확인
-        if os.path.isfile(self.db_name+'.dat'):
-            with shelve.open(self.db_name) as data:
-                #데이터 내 세이브의 존재를 확인
-                if 'd_log' in data:
-                    self.dLog = data['d_log']
-                #데이터 내 세이브 없을 때
-                else:
-                    no_db = QMessageBox()
-                    no_db.setWindowTitle('환영합니다')
-                    no_db.setText('식단일기를 새롭게 시작합니다')
-                    no_db.exec_()
-        #파일 자체가 없을 때
-        else:
-            no_file = QMessageBox()
-            no_file.setWindowTitle('환영합니다')
-            no_file.setText('식단일기를 새롭게 시작합니다')
-            no_file.exec_()
-
-    def mealUpdate(self):
-        '''칼로리 변화를 추적한다'''
-        self.d_meal.setText('%0.f'%(self.c_meal.value() - self.g_meal.value()))
-
-    def aUpdate(self):
-        '''활동의 수치 변화를 추적한다'''
-        idx = self.a_check.index(self.sender())
-        self.a_count[idx].setValue(self.a_count[idx].value() - (-1)**(self.a_check[idx].isChecked()))
+    def caloryUpdate(self):
+        '''칼로리 데이터를 갱신한다'''
+        if self.settings.value('calory'):
+            d_calory = self.c_calory.value() - self.g_calory.value()
+            self.d_calory.setText('%+1.0f' %d_calory)
+            if d_calory > 0:
+                self.d_calory.setStyleSheet("QLabel { color: red; font-weight: bold;}")
+            else:
+                self.d_calory.setStyleSheet("QLabel { color: green; font-weight: bold;}")
 
     def addAction(self):
-        '''활동 추가'''
-        self.dLog.action.append(['', 0])
+        '''활동을 추가한다'''
+        self.log.action.append(['', 0])
         self.clear()
         self.setUI()
         self.mount()
 
     def delAction(self):
-        '''활동 삭제'''
-        if len(self.dLog.action) > 1:
-            self.dLog.action.pop()
+        '''활동을 제거한다'''
+        if len(self.log.action) > 1:
+            self.log.action.pop()
             self.clear()
             self.setUI()
             self.mount()
 
-    def addMeal(self):
-        self.dLog.m_list.append('')
+    def addMeal(self, meal_list):
+        '''식단을 추가한다'''
+        #최초 기동시
+        if len(meal_list) < 1:
+            meal_list = ['아침', '점심', '저녁', '간식']
+
+        for meal in meal_list:
+            self.meal_name.append(QLineEdit(meal))
+            self.meal_name[-1].setFixedWidth(80)
+            self.meal_text.append(QLineEdit())
+            self.addWidget(self.meal_name[-1])
+            self.addWidget(self.meal_text[-1], next=True)
+
+    def addlogBtn(self):
+        '''잘한일을 추가한다'''
+        self.num_log += 1
         self.clear()
         self.setUI()
         self.mount()
 
-    def delMeal(self):
-        self.m_list.pop()
-        self.clear()
-        self.setUI()
-        self.mount()
-
-    def autoAddMeal(self, m_list):
-        for meal in m_list:
-            self.m_list.append(QLineEdit())
-            self.m_list[-1].setText(meal)
-            self.m_text.append(QLineEdit())
-            self.addWidget(self.m_list[-1])
-            self.addWidget(self.m_text[-1], 4, next=True)
-
-    def addWidget(self, t_widget, width=1, next=False):
-        '''위젯을 추가한다'''
-        self.grid.addWidget(t_widget, self.row_count, self.col_count, 1, width)
-        if next:
-            self.row_count += 1
-            self.col_count = 0
+    def delLogBtn(self):
+        '''잘한일을 제거한다'''
+        if self.num_log > 1:
+            self.num_log -= 1
+            self.clear()
+            self.setUI()
+            self.mount()
         else:
-            self.col_count += width
+            message = QMessageBox()
+            message.setWindowTitle('오류')
+            message.setText('마지막 잘한일은 삭제할 수 없습니다')
+            message.exec_()
 
-    def clear(self):
-        '''어플리케이션 상의 위젯들을 제거한다'''
-        for row in range(0, self.grid.rowCount()):
-            for column in range(0, self.grid.columnCount()):
-                item = self.grid.itemAtPosition(row, column)
-                if item != None:
-                    widget = item.widget()
-                    if widget != None:
-                        self.grid.removeWidget(widget)
-                        widget.deleteLater()
-
-    def setLabel(self, label_name, c_align=True, frame=True):
-        '''정해진 스타일의 레이블을 리턴한다'''
-        label = QLabel(label_name)
-        if c_align:
-            label.setAlignment(Qt.AlignCenter)
-        if frame:
-            label.setFrameShape(QFrame.Panel)
-        return label
-
-    def d_day_update(self):
-        '''날짜 조작에 따라 D-day 카운터를 갱신한다'''
-        d_day = self.b_date.date().daysTo(self.c_date.date()) + 1
-        self.d_day.setText('D+%d' %d_day)
-
-    def save(self):
-        '''self.dLog의 데이터를 저장한다'''
-        self.dLog.date = self.b_date.date()
-        self.dLog.goal = self.g_text.text()
-        self.dLog.action = []
-        for action in self.a_text:
-            idx = self.a_text.index(action)
-            self.dLog.action.append([action.text(), self.a_count[idx].value()])
+    def save(self, export=False):
+        '''저장한다'''
+        self.log.date = self.b_date.date()
+        self.log.goal = self.goal.text()
+        action_list = []
+        for action in self.name:
+            idx = self.name.index(action)
+            action_list.append([self.name[idx].text(), self.counter[idx].value()])
+        self.log.action = action_list
         if self.settings.value('calory'):
-            self.dLog.c_goal = self.g_meal.value()
-        self.dLog.m_list = []
-        for meal in self.m_list:
-            self.dLog.m_list.append(meal.text())
-        self.dLog.v_count = self.v_list[-1].value()
-
-        with shelve.open(self.db_name) as data:
-            data['d_log'] = self.dLog
-
-    def mount(self):
-        '''데이터를 어플리케이션에 반영한다'''
-        #저녁 6시 이전에 작성할 경우
-        self.b_date.setDate(self.dLog.date)
-        if datetime.datetime.now().hour < 18:
-            date = datetime.datetime.today() - datetime.timedelta(days=1)
-            self.c_date.setDate(date)
+            self.log.c_goal = self.g_calory.value()
+        meal_list = []
+        for meal in self.meal_name:
+            meal_list.append(meal.text())
+        self.log.m_list = meal_list
+        if export:
+            self.log.counter = self.log_counter[-1].value() + 1
         else:
-            self.c_date.setDate(datetime.date.today())
-        self.g_text.setText(self.dLog.goal)
-        for action in self.dLog.action:
-            idx = self.dLog.action.index(action)
-            self.a_text[idx].setText(action[0])
-            self.a_count[idx].setValue(action[1])
-        self.v_list[0].setValue(self.dLog.v_count)
-        if self.settings.value('calory'):
-            self.g_meal.setValue(self.dLog.c_goal)
+            self.log.counter = self.log_counter[-1].value()
 
-    def loadMount(self):
-        self.load()
-        self.mount()
+        super(DietNote, self).save()
 
     def export(self):
-        '''출력한다'''
+        '''기록을 출력한다'''
         date = self.c_date.date().toString('yyMMdd')
         out_str = self.settings.value('header')
         d_day = self.b_date.date().daysTo(self.c_date.date()) + 1
@@ -305,101 +209,37 @@ class DietNote(QMainWindow):
         out_str += '\n'
         if self.settings.value('linebreak'):
             out_str += '\n'
-        out_str += '%s : %s\n' %(self.settings.value('goal'), self.g_text.text())
+        out_str += '%s : %s\n' %(self.settings.value('goal'), self.goal.text())
         if self.settings.value('linebreak'):
             out_str += '\n'
         out_str += self.settings.value('action') + '\n'
-        for action in self.a_text:
-            idx = self.a_text.index(action)
-            out_str += '%s : %d / %d\n' %(self.a_text[idx].text(), self.a_check[idx].isChecked(), self.a_count[idx].value())
+        for action in self.name:
+            idx = self.name.index(action)
+            out_str += '%s : %d / %d\n' %(self.name[idx].text(), self.checker[idx].isChecked(), self.counter[idx].value())
         if self.settings.value('linebreak'):
             out_str += '\n'
         out_str += self.settings.value('meal')
         if self.settings.value('calory'):
-            out_str += '%dkcal (%s)' %(self.c_meal.value(), self.d_meal.text())
+            out_str += '%dkcal (%s)' %(self.c_calory.value(), self.d_calory.text())
         out_str += '\n'
-        for meal in self.m_list:
-            idx = self.m_list.index(meal)
-            out_str += '- %s : %s\n' %(self.m_list[idx].text(), self.m_text[idx].text())
+        for meal in self.meal_name:
+            idx = self.meal_name.index(meal)
+            out_str += '- %s : %s\n' %(self.meal_name[idx].text(), self.meal_text[idx].text())
         if self.settings.value('linebreak'):
             out_str += '\n'
         out_str += self.settings.value('deed') + '\n'
-        for i in range(self.num_virtue):
-            out_str += '%d. %s\n' %(self.v_list[i].value(), self.v_text[i].text())
+        for i in range(self.num_log):
+            out_str += '%d. %s\n' %(self.log_counter[i].value(), self.log_text[i].text())
 
-        cb = QApplication.clipboard()
-        cb.clear(mode=cb.Clipboard)
-        cb.setText(out_str, mode=cb.Clipboard)
-        msg = QMessageBox()
-        msg.setWindowTitle('오늘의 식단일기')
-        msg.setText(out_str)
-        msg.buttonClicked.connect(self.expSave)
-        msg.exec_()
+        self.exportMessage(out_str, '오늘의 식단일기')
 
     def showSettings(self):
-        self.setting_widget = diet_settings.DietSettings(self.settings)
+        '''설정 화면을 출력한다'''
+        self.setting_widget = DietSettings(self)
         self.setting_widget.show()
 
-    def expSave(self):
-        '''self.dLog의 데이터를 저장한다'''
-        self.dLog.date = self.b_date.date()
-        self.dLog.goal = self.g_text.text()
-        self.dLog.action = []
-        for action in self.a_text:
-            idx = self.a_text.index(action)
-            self.dLog.action.append([action.text(), self.a_count[idx].value()])
-        if self.settings.value('calory'):
-            self.dLog.c_goal = self.g_meal.value()
-        self.dLog.m_list = []
-        for meal in self.m_list:
-            self.dLog.m_list.append(meal.text())
-        self.dLog.v_count = self.v_list[-1].value() + 1
-
-        with shelve.open(self.db_name) as data:
-            data['d_log'] = self.dLog
-
-        if self.settings.value('autoVerify'):
-            wdays='월화수목금토일'
-            input_date = self.c_date.date().toString('M/d ') + wdays[self.c_date.date().toPyDate().weekday()]
-            input_name = self.settings.value('nickname')
-            try:
-                gapi = INote_gdapi.gAPI(self.settings.value('sheetID'))
-                name_row = gapi.findName(input_name)
-                date_column = gapi.findDate(input_date)
-                gapi.updateVerification(name_row, date_column)
-                data = gapi.getVerificationInfo(name_row)
-                msg = QMessageBox()
-                msg.setWindowTitle('자동인증 완료!')
-                update_msg = '자동인증이 완료되었습니다. \n 이번달에 총 %d회, 누적 총 %d회 인증하셨습니다.'%(data[0], sum(data))
-                msg.setText(update_msg)
-                msg.exec_()
-            except:
-                msg = QMessageBox()
-                msg.setWindowTitle('자동인증 실패!')
-                error_msg = '자동인증이 실패했습니다. ID와 닉네임을 확인해주세요.\n 최초 기동이신 경우, 재시도해주세요.'
-                msg.setText(error_msg)
-                msg.exec_()
-
-class DietLog():
-    '''식단일기 데이터 구조체'''
-    def __init__(self):
-        #데이터 구조체 버전
-        self.version = 2
-
-        #시작일자
-        self.date = datetime.date.today()
-
-        #목표
-        self.goal = ''
-
-        #체크박스 누적 리스트
-        self.action = []
-
-        #식단 칼로리
-        self.c_goal = 0
-
-        #식단 리스트
-        self.m_list = []
-
-        #잘한일 카운터
-        self.v_count = 1
+if __name__ == '__main__':
+    application = QApplication(sys.argv)
+    main_widget = DietNote()
+    main_widget.show()
+    sys.exit(application.exec_())

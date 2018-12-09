@@ -7,153 +7,88 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-class DietSettings(QTabWidget):
+from common_settings import CommonSettings
+
+class DietSettings(CommonSettings):
     '''식단일기 설정 위젯'''
-    def __init__(self, settings, parent=None):
+    def __init__(self, parent):
         super(DietSettings, self).__init__(parent)
 
         self.setWindowTitle('[먹은거] 설정')
 
-        self.settings = settings
-        self.tab = []
-        self.grid = []
+        #출력 순서 데이터
+        self.checker_list = ['linebreak', 'weekday', 'calory', 'autoVerify']
+        self.text_list = ['header', 'goal', 'action', 'meal', 'deed', 'spreadsheet ID', 'nickname']
+
         self.setUI()
+        self.mount()
 
     def setUI(self):
         '''UI를 설정한다'''
-        #출력설정
-        tab_order = 0
+        self.addCategory('출력')
+        self.addCheckerOption('항목 사이 칸 띄우기')
+        self.addTextOption('헤더')
+        self.addCheckerOption('요일 출력')
+        self.addTextOption('목표')
+        self.addTextOption('활동')
+        self.addTextOption('식단')
+        self.addCheckerOption('칼로리 추적')
+        self.addTextOption('잘한일')
 
-        self.row_count = 0
-        self.col_count = 0
-        self.tab.append(QWidget())
-        tab = self.tab[-1]
-        self.grid.append(QGridLayout())
-        self.setTabText(tab_order, '출력')
-        tab.setLayout(self.grid[tab_order])
-        self.addTab(self.tab[tab_order], '출력')
+        self.addCategory('자동인증')
+        self.addCheckerOption('자동인증 사용')
+        self.addTextOption('spreadsheet ID')
+        self.addTextOption('별명')
 
-        label = QLabel('헤더')
-        self.header = QLineEdit()
-        self.header.setText(self.settings.value('header'))
-        self.addWidget(label, 2)
-        self.addWidget(self.header, 5, next=True)
+        self.addButtons()
 
-        label = QLabel('요일 출력하기')
-        self.weekday = QCheckBox()
-        self.weekday.setChecked(self.settings.value('weekday'))
-        self.addWidget(label, 6)
-        self.addWidget(self.weekday, next=True)
+    def update(self):
+        '''미리보기를 업데이트한다'''
+        date = datetime.date(year=2018, month=1, day=1)
+        out_str = self.text[0].text()
+        d_day = datetime.date.today() - date + datetime.timedelta(days=1)
+        date = date.strftime('%y%m%d')
+        d_day = d_day.days
+        out_str += '%s %s ' %(d_day, date)
+        if self.checker[1].isChecked():
+            wdays = '월화수목금토일'
+            out_str += wdays[datetime.date.today().weekday()]
+        out_str += '\n'
+        if self.checker[0].isChecked():
+            out_str += '\n'
+        out_str += '%s%s\n' %(self.text[1].text(), '건강한 삶')
+        if self.checker[0].isChecked():
+            out_str += '\n'
+        out_str += self.text[2].text() + '\n'
+        action_list = [['운동', 1, 7], ['식단기록', 0, 22]]
+        for action in action_list:
+            idx = action_list.index(action)
+            out_str += '%s%d / %d\n' %(action[0], action[1], action[2])
+        if self.checker[0].isChecked():
+            out_str += '\n'
+        out_str += self.text[3].text()
+        calory_list = [2200, 1900]
+        if self.checker[2].isChecked():
+            out_str += '%dkcal (%s)' %(calory_list[0], calory_list[1] - calory_list[0])
+        out_str += '\n'
+        meal_list = [['아침', '스무디'], ['점심', '된장찌개정식'], ['저녁', '닭가슴살 샐러드']]
+        for meal in meal_list:
+            out_str += '- %s : %s\n' %(meal[0], meal[1])
+        if self.checker[0].isChecked():
+            out_str += '\n'
+        out_str += self.text[4].text() + '\n'
+        deed_list = [[16, '배가 고팠지만 간식을 잘 참았다.']]
+        for deed in deed_list:
+            out_str += '%d. %s\n' %(deed[0], deed[1])
 
-        label =QLabel('항목 사이 칸 띄우기')
-        self.linebreak = QCheckBox()
-        self.linebreak.setChecked(self.settings.value('linebreak'))
-        self.addWidget(label, 6)
-        self.addWidget(self.linebreak, next=True)
+        self.preview_text.setText(out_str)
 
-        label = QLabel('목표')
-        self.goal = QLineEdit()
-        self.goal.setText(self.settings.value('goal'))
-        self.addWidget(label, 3)
-        self.addWidget(self.goal, 4, next=True)
+    def save(self):
+        super(DietSettings, self).save()
+        self.parent.refresh()
 
-        label = QLabel('활동')
-        self.action = QLineEdit()
-        self.action.setText(self.settings.value('action'))
-        self.addWidget(label, 3)
-        self.addWidget(self.action, 4, next=True)
-
-        label = QLabel('식단')
-        self.meal = QLineEdit()
-        self.meal.setText(self.settings.value('meal'))
-        self.addWidget(label, 3)
-        self.addWidget(self.meal, 4, next=True)
-
-        label2 = QLabel('칼로리 추적')
-        self.calory = QCheckBox()
-        self.calory.setChecked(self.settings.value('calory'))
-        self.addWidget(label2, 6)
-        self.addWidget(self.calory, next=True)
-
-        label = QLabel('잘한일')
-        self.deed = QLineEdit()
-        self.deed.setText(self.settings.value('deed'))
-        self.addWidget(label, 3)
-        self.addWidget(self.deed, 4, next=True)
-
-        save_button = QPushButton('저장')
-        save_button.clicked.connect(self.saveSettings)
-        preview_button = QPushButton('미리보기')
-        preview_button.clicked.connect(self.preview)
-        self.addWidget(save_button, 3)
-        self.addWidget(preview_button, 4)
-
-        #자동인증 옵션
-        tab_order += 1
-
-        self.row_count = 0
-        self.col_count = 0
-        self.tab.append(QWidget())
-        tab = self.tab[-1]
-        self.grid.append(QGridLayout())
-        self.setTabText(tab_order, '자동인증')
-        tab.setLayout(self.grid[tab_order])
-        self.addTab(self.tab[tab_order], '자동인증')
-
-        switch_label = QLabel('자동인증 활성화')
-        self.autoVerify = QCheckBox()
-        if self.settings.value('autoVerify'):
-            self.autoVerify.setChecked(self.settings.value('autoVerify'))
-        self.addWidget(switch_label)
-        self.addWidget(self.autoVerify, next=True)
-
-        sheetID = QLabel('spreadsheet ID')
-        self.sheetID = QLineEdit()
-        if self.settings.value('sheetID'):
-            self.sheetID.setText(self.settings.value('sheetID'))
-        self.addWidget(sheetID)
-        self.addWidget(self.sheetID, next=True)
-
-        nickname = QLabel('별명')
-        self.nickname = QLineEdit()
-        if self.settings.value('nickname'):
-            self.nickname.setText(self.settings.value('nickname'))
-        self.addWidget(nickname)
-        self.addWidget(self.nickname, next=True)
-
-        auto_save = QPushButton('저장')
-        auto_save.clicked.connect(self.autoSave)
-        self.addWidget(auto_save, 2)
-
-    def autoSave(self):
-        self.settings.setValue('autoVerify', int(self.autoVerify.isChecked()))
-        self.settings.setValue('sheetID', self.sheetID.text())
-        self.settings.setValue('nickname', self.nickname.text())
-
-    def setLabel(self, label_name):
-        '''지정된 양식의 QLabel 객체를 리턴한다'''
-        label = QLabel(label_name)
-        label.setAlignment(Qt.AlignCenter)
-        label.setFrameShape(QFrame.Panel)
-        return label
-
-    def saveSettings(self):
-        self.settings.setValue('header', self.header.text())
-        self.settings.setValue('goal', self.goal.text())
-        self.settings.setValue('action', self.action.text())
-        self.settings.setValue('meal', self.meal.text())
-        self.settings.setValue('deed', self.deed.text())
-        self.settings.setValue('weekday', int(self.weekday.isChecked()))
-        self.settings.setValue('linebreak', int(self.linebreak.isChecked()))
-        self.settings.setValue('calory', int(self.calory.isChecked()))
-
-    def addWidget(self, t_widget, width=1, next=False):
-        self.grid[-1].addWidget(t_widget, self.row_count, self.col_count, 1, width)
-        if next:
-            self.row_count += 1
-            self.col_count = 0
-        else:
-            self.col_count += width
-
-    def preview(self):
-        pass
+if __name__ == "__main__":
+    application = QApplication(sys.argv)
+    main_widget = DietSettings('')
+    main_widget.show()
+    sys.exit(application.exec_())
